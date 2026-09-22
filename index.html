@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gambit</title>
+<meta name="description" content="A chess engine written from scratch. 0x88 move generation proven by perft, alpha-beta search with a transposition table, running in a worker." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#f2ede3; --card:#faf7f1; --line:#ddd4c4; --line2:#c9bca6;
+  --ink:#1f1a14; --sub:#6b6053; --dim:#9b8f80;
+  --light:#ead9bb; --dark:#a97b52; --acc:#2d5a45; --acc2:#e1b54a;
+  --hl:rgba(225,181,74,.55); --chk:#c2412d;
+  --d:"Fraunces",Georgia,serif; --m:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --pc:"Noto Sans Symbols 2","Segoe UI Symbol",serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--d);-webkit-font-smoothing:antialiased;min-height:100vh}
+header{display:flex;align-items:baseline;gap:14px;padding:22px 28px 0;flex-wrap:wrap}
+header h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0}
+header p{margin:0;color:var(--sub);font-size:15px}
+header a{margin-left:auto;font-family:var(--m);font-size:11.5px;color:var(--sub)}
+main{display:grid;grid-template-columns:auto minmax(320px,400px);gap:28px;padding:20px 28px 32px;align-items:start;justify-content:center}
+.boardwrap{display:flex;gap:12px}
+.evalbar{width:20px;border-radius:3px;background:#2a241d;position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+.evalbar i{position:absolute;left:0;right:0;bottom:0;background:#f7f2e8;transition:height .35s ease}
+.evalbar span{position:absolute;left:0;right:0;text-align:center;font-family:var(--m);font-size:8.5px;font-weight:600;z-index:1}
+#board{--s:min(70px,calc((100vw - 64px)/8));width:calc(var(--s)*8);height:calc(var(--s)*8);display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);
+  border-radius:4px;overflow:hidden;box-shadow:0 1px 0 #fff inset,0 18px 40px -18px rgba(60,40,20,.45),0 0 0 6px #3b2d20,0 0 0 7px #1d160f;user-select:none;touch-action:none}
+.sq{position:relative;display:flex;align-items:center;justify-content:center}
+.sq.l{background:var(--light)} .sq.d{background:var(--dark)}
+.sq.last::before{content:"";position:absolute;inset:0;background:var(--hl)}
+.sq.sel::before{content:"";position:absolute;inset:0;background:rgba(45,90,69,.45)}
+.sq.chk::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,rgba(194,65,45,.95) 0,rgba(194,65,45,.55) 45%,transparent 72%)}
+.sq .co{position:absolute;font-family:var(--m);font-size:9.5px;font-weight:600;pointer-events:none}
+.sq .co.r{left:3px;top:2px} .sq .co.f{right:4px;bottom:1px}
+.sq.l .co{color:var(--dark)} .sq.d .co{color:var(--light)}
+.dot{position:absolute;width:28%;height:28%;border-radius:50%;background:rgba(31,26,20,.22);pointer-events:none}
+.ring{position:absolute;inset:4%;border-radius:50%;box-shadow:inset 0 0 0 calc(var(--s)*.07) rgba(31,26,20,.22);pointer-events:none}
+.pc{font-family:var(--pc);font-size:calc(var(--s)*.8);line-height:1;position:relative;z-index:2;cursor:grab;transform:translateY(-3%)}
+.pc.w{color:#fbf8f1;-webkit-text-stroke:1.4px #2a2118;text-shadow:0 2px 2px rgba(0,0,0,.25)}
+.pc.b{color:#231c15;-webkit-text-stroke:.6px #000;text-shadow:0 2px 2px rgba(0,0,0,.25)}
+.drag{position:fixed;pointer-events:none;z-index:50;font-family:var(--pc);line-height:1;transform:translate(-50%,-55%)}
+
+.panel{display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.card h2{font-family:var(--m);font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--sub);margin:0 0 10px;display:flex;justify-content:space-between}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{font-family:var(--d);font-size:14px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--line2);border-radius:5px;padding:7px 12px;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.05)}
+button:hover{border-color:var(--ink)}
+button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button.go{background:var(--acc);color:#fff;border-color:var(--acc)}
+.seg{display:flex;border:1px solid var(--line2);border-radius:5px;overflow:hidden}
+.seg button{border:0;border-radius:0;border-right:1px solid var(--line2);box-shadow:none;font-size:13px;padding:6px 10px}
+.seg button:last-child{border-right:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.stats div{font-family:var(--m);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.stats b{display:block;font-size:16px;color:var(--ink);letter-spacing:0;font-weight:600;margin-top:2px}
+.pv{font-family:var(--m);font-size:12px;line-height:1.55;color:var(--sub);min-height:38px}
+.pv b{color:var(--ink)}
+.status{font-size:17px;font-weight:600;margin-bottom:10px}
+.status small{display:block;font-weight:400;font-size:13px;color:var(--sub);margin-top:2px}
+.moves{font-family:var(--m);font-size:12.5px;max-height:170px;overflow:auto;display:grid;grid-template-columns:34px 1fr 1fr;row-gap:2px}
+.moves span{padding:1px 4px}
+.moves .n{color:var(--dim)}
+.moves .cur{background:var(--acc2);border-radius:3px}
+table{width:100%;border-collapse:collapse;font-family:var(--m);font-size:11.5px}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.08em;padding:0 4px 5px}
+td{padding:3px 4px;border-top:1px solid var(--line)}
+td.ok{color:var(--acc);font-weight:600} td.bad{color:var(--chk);font-weight:600}
+td.r{text-align:right}
+.fen{width:100%;font-family:var(--m);font-size:11px;padding:7px 8px;border:1px solid var(--line2);border-radius:5px;background:#fff;color:var(--ink)}
+.promo{position:fixed;inset:0;background:rgba(31,26,20,.35);display:none;align-items:center;justify-content:center;z-index:60}
+.promo.show{display:flex}
+.promo div{background:var(--card);border-radius:8px;padding:10px;display:flex;gap:6px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.promo button{font-family:var(--pc);font-size:44px;width:64px;height:64px;padding:0;line-height:1}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:16px}.boardwrap{justify-content:center}header{padding:18px 16px 0}header a{margin-left:0}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Gambit</h1>
+  <p>A chess engine written from nothing. Move generation proven by perft, searched in a worker.</p>
+  <a href="https://github.com/bxzex/gambit">source</a>
+</header>
+<main>
+  <div class="boardwrap">
+    <div class="evalbar" id="evalbar"><i id="evalfill" style="height:50%"></i><span id="evaltxt" style="bottom:4px;color:#2a241d">0.0</span></div>
+    <div id="board"></div>
+  </div>
+  <div class="panel">
+    <div class="card">
+      <div class="status" id="status">White to move<small>You play white</small></div>
+      <div class="row">
+        <div class="seg" id="mode">
+          <button data-m="w" class="on">Play white</button><button data-m="b">Play black</button><button data-m="watch">Watch</button>
+        </div>
+        <button id="undo">Undo</button><button id="flip">Flip</button>
+      </div>
+      <div class="row" style="margin-top:10px;align-items:center">
+        <span style="font-size:13px;color:var(--sub)">Think time</span>
+        <div class="seg" id="tm"><button data-t="300">0.3s</button><button data-t="1000" class="on">1s</button><button data-t="3000">3s</button><button data-t="8000">8s</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2><span>Engine</span><span id="thinking"></span></h2>
+      <div class="stats">
+        <div>Depth<b id="s-d">0</b></div><div>Eval<b id="s-e">0.00</b></div><div>Nodes<b id="s-n">0</b></div><div>kN/s<b id="s-k">0</b></div>
+      </div>
+      <div class="pv" id="pv">Principal variation appears here while the engine thinks.</div>
+    </div>
+    <div class="card">
+      <h2><span>Moves</span><span id="ply">0 ply</span></h2>
+      <div class="moves" id="moves"></div>
+    </div>
+    <div class="card">
+      <h2><span>Perft</span><span id="perft-t"></span></h2>
+      <table id="perft"><thead><tr><th>Position</th><th>d</th><th class="r">expected</th><th class="r">counted</th></tr></thead><tbody></tbody></table>
+      <div class="row" style="margin-top:10px"><button id="runperft" class="go">Run the suite</button></div>
+    </div>
+    <div class="card">
+      <h2><span>Position</span></h2>
+      <input class="fen" id="fen" spellcheck="false" />
+      <div class="row" style="margin-top:8px"><button id="loadfen">Load FEN</button><button id="reset">New game</button></div>
+    </div>
+  </div>
+</main>
+<div class="promo" id="promo"><div></div></div>
+
+<script id="engine">
+"use strict";
+/* ---------------------------------------------------------------
+   Gambit engine. 0x88 board, pseudo-legal generation filtered by
+   make/unmake, Zobrist hashing in two 32-bit halves, negamax
+   alpha-beta with PVS, TT, null move, LMR, killers, history and a
+   capture-only quiescence search.
+   --------------------------------------------------------------- */
+const P=1,N=2,B=3,R=4,Q=5,K=6;
+const CAP=1,DBL=2,EPF=4,CAS=8;
+const KN=[33,31,18,14,-33,-31,-18,-14], KG=[16,-16,1,-1,17,15,-17,-15], BD=[17,15,-17,-15], RD=[16,-16,1,-1];
+const VAL=[0,100,320,330,500,900,20000];
+const bd=new Int8Array(128);
+let side=0, castle=0, ep=-1, half=0, full=1;
+const kings=[4,116];
+let hLo=0, hHi=0;
+
+let seed=0x2545f491|0;
+function rnd(){ seed^=seed<<13; seed^=seed>>>17; seed^=seed<<5; return seed|0; }
+const zLo=new Int32Array(16*128), zHi=new Int32Array(16*128);
+for(let i=0;i<zLo.length;i++){ zLo[i]=rnd(); zHi[i]=rnd(); }
+const zcLo=new Int32Array(16), zcHi=new Int32Array(16), zeLo=new Int32Array(128), zeHi=new Int32Array(128);
+for(let i=0;i<16;i++){ zcLo[i]=rnd(); zcHi[i]=rnd(); }
+for(let i=0;i<128;i++){ zeLo[i]=rnd(); zeHi[i]=rnd(); }
+const zsLo=rnd(), zsHi=rnd();
+const CMASK=new Int8Array(128).fill(15);
+CMASK[0]=13; CMASK[7]=14; CMASK[4]=12; CMASK[112]=7; CMASK[119]=11; CMASK[116]=3;
+
+const MAXH=2048;
+const uMove=new Int32Array(MAXH), uPiece=new Int8Array(MAXH), uCap=new Int8Array(MAXH), uCastle=new Int8Array(MAXH),
+      uEp=new Int16Array(MAXH), uHalf=new Int16Array(MAXH), uLo=new Int32Array(MAXH), uHi=new Int32Array(MAXH);
+let hp=0;
+
+const mv=(f,t,p,fl)=>f|(t<<7)|(p<<14)|(fl<<17);
+const mFrom=m=>m&127, mTo=m=>(m>>7)&127, mPro=m=>(m>>14)&7, mFl=m=>m>>>17;
+
+function computeHash(){
+  let lo=0,hi=0;
+  for(let s=0;s<128;s++){ if(s&0x88){s+=7;continue;} const p=bd[s]; if(p){ lo^=zLo[p*128+s]; hi^=zHi[p*128+s]; } }
+  lo^=zcLo[castle]; hi^=zcHi[castle];
+  if(ep>=0){ lo^=zeLo[ep]; hi^=zeHi[ep]; }
+  if(side){ lo^=zsLo; hi^=zsHi; }
+  hLo=lo; hHi=hi;
+}
+
+function attacked(sq,c){
+  const cb=c?8:0; let s;
+  if(c===0){ s=sq-15; if(!(s&0x88)&&bd[s]===P) return true; s=sq-17; if(!(s&0x88)&&bd[s]===P) return true; }
+  else { s=sq+15; if(!(s&0x88)&&bd[s]===(P|8)) return true; s=sq+17; if(!(s&0x88)&&bd[s]===(P|8)) return true; }
+  const kn=N|cb, kg=K|cb, bi=B|cb, ro=R|cb, qu=Q|cb;
+  for(let i=0;i<8;i++){ s=sq+KN[i]; if(!(s&0x88)&&bd[s]===kn) return true; }
+  for(let i=0;i<8;i++){ s=sq+KG[i]; if(!(s&0x88)&&bd[s]===kg) return true; }
+  for(let i=0;i<4;i++){ const d=BD[i]; s=sq+d; while(!(s&0x88)){ const p=bd[s]; if(p){ if(p===bi||p===qu) return true; break; } s+=d; } }
+  for(let i=0;i<4;i++){ const d=RD[i]; s=sq+d; while(!(s&0x88)){ const p=bd[s]; if(p){ if(p===ro||p===qu) return true; break; } s+=d; } }
+  return false;
+}
+const inCheck=()=>attacked(kings[side],side^1);
+
+function gen(out,caps){
+  const cb=side?8:0, them=side^1;
+  for(let sq=0;sq<128;sq++){
+    if(sq&0x88){ sq+=7; continue; }
+    const p=bd[sq]; if(!p||(p&8)!==cb) continue;
+    const t=p&7;
+    if(t===P){
+      const fwd=side?-16:16, start=side?6:1, last=side?0:7, to=sq+fwd;
+      if(!(to&0x88)&&!bd[to]){
+        if((to>>4)===last){ out.push(mv(sq,to,Q,0)); out.push(mv(sq,to,N,0)); out.push(mv(sq,to,R,0)); out.push(mv(sq,to,B,0)); }
+        else if(!caps){ out.push(mv(sq,to,0,0)); if((sq>>4)===start&&!bd[to+fwd]) out.push(mv(sq,to+fwd,0,DBL)); }
+      }
+      for(let k=-1;k<=1;k+=2){
+        const c=to+k; if(c&0x88) continue;
+        const v=bd[c];
+        if(v&&(v&8)!==cb){
+          if((c>>4)===last){ out.push(mv(sq,c,Q,CAP)); out.push(mv(sq,c,N,CAP)); out.push(mv(sq,c,R,CAP)); out.push(mv(sq,c,B,CAP)); }
+          else out.push(mv(sq,c,0,CAP));
+        } else if(c===ep) out.push(mv(sq,c,0,CAP|EPF));
+      }
+    } else if(t===N||t===K){
+      const D=t===N?KN:KG;
+      for(let i=0;i<8;i++){ const s=sq+D[i]; if(s&0x88) continue; const v=bd[s];
+        if(!v){ if(!caps) out.push(mv(sq,s,0,0)); } else if((v&8)!==cb) out.push(mv(sq,s,0,CAP)); }
+      if(t===K&&!caps){
+        if(side===0&&sq===4){
+          if((castle&1)&&!bd[5]&&!bd[6]&&bd[7]===R&&!attacked(4,1)&&!attacked(5,1)&&!attacked(6,1)) out.push(mv(4,6,0,CAS));
+          if((castle&2)&&!bd[3]&&!bd[2]&&!bd[1]&&bd[0]===R&&!attacked(4,1)&&!attacked(3,1)&&!attacked(2,1)) out.push(mv(4,2,0,CAS));
+        } else if(side===1&&sq===116){
+          if((castle&4)&&!bd[117]&&!bd[118]&&bd[119]===(R|8)&&!attacked(116,0)&&!attacked(117,0)&&!attacked(118,0)) out.push(mv(116,118,0,CAS));
+          if((castle&8)&&!bd[115]&&!bd[114]&&!bd[113]&&bd[112]===(R|8)&&!attacked(116,0)&&!attacked(115,0)&&!attacked(114,0)) out.push(mv(116,114,0,CAS));
+        }
+      }
+    } else {
+      const D=t===B?BD:t===R?RD:KG, n=t===Q?8:4;
+      for(let i=0;i<n;i++){ const d=D[i]; let s=sq+d;
+        while(!(s&0x88)){ const v=bd[s];
+          if(!v){ if(!caps) out.push(mv(sq,s,0,0)); }
+          else { if((v&8)!==cb) out.push(mv(sq,s,0,CAP)); break; }
+          s+=d; } }
+    }
+  }
+  return out;
+}
+
+function make(m){
+  const from=m&127, to=(m>>7)&127, pr=(m>>14)&7, fl=m>>>17;
+  const p=bd[from]; let cap=bd[to];
+  uMove[hp]=m; uPiece[hp]=p; uCastle[hp]=castle; uEp[hp]=ep; uHalf[hp]=half; uLo[hp]=hLo; uHi[hp]=hHi;
+  let lo=hLo, hi=hHi;
+  if(fl&EPF){ const cs=side?to+16:to-16; cap=bd[cs]; bd[cs]=0; lo^=zLo[cap*128+cs]; hi^=zHi[cap*128+cs]; }
+  else if(cap){ lo^=zLo[cap*128+to]; hi^=zHi[cap*128+to]; }
+  uCap[hp]=cap;
+  lo^=zLo[p*128+from]; hi^=zHi[p*128+from]; bd[from]=0;
+  const np=pr?(pr|(p&8)):p;
+  bd[to]=np; lo^=zLo[np*128+to]; hi^=zHi[np*128+to];
+  if(fl&CAS){
+    let rf,rt; if(to===6){rf=7;rt=5}else if(to===2){rf=0;rt=3}else if(to===118){rf=119;rt=117}else{rf=112;rt=115}
+    const r=bd[rf]; bd[rf]=0; bd[rt]=r; lo^=zLo[r*128+rf]^zLo[r*128+rt]; hi^=zHi[r*128+rf]^zHi[r*128+rt];
+  }
+  if((p&7)===K) kings[side]=to;
+  lo^=zcLo[castle]; hi^=zcHi[castle]; castle&=CMASK[from]&CMASK[to]; lo^=zcLo[castle]; hi^=zcHi[castle];
+  if(ep>=0){ lo^=zeLo[ep]; hi^=zeHi[ep]; }
+  ep=-1;
+  if(fl&DBL){ ep=(from+to)>>1; lo^=zeLo[ep]; hi^=zeHi[ep]; }
+  half=((p&7)===P||cap)?0:half+1;
+  if(side) full++;
+  side^=1; lo^=zsLo; hi^=zsHi; hLo=lo; hHi=hi; hp++;
+  if(attacked(kings[side^1],side)){ unmake(); return false; }
+  return true;
+}
+function unmake(){
+  hp--; side^=1; if(side) full--;
+  const m=uMove[hp], from=m&127, to=(m>>7)&127, fl=m>>>17, p=uPiece[hp], cap=uCap[hp];
+  bd[from]=p;
+  if(fl&EPF){ bd[to]=0; bd[side?to+16:to-16]=cap; } else bd[to]=cap;
+  if(fl&CAS){
+    if(to===6){bd[7]=bd[5];bd[5]=0}else if(to===2){bd[0]=bd[3];bd[3]=0}
+    else if(to===118){bd[119]=bd[117];bd[117]=0}else{bd[112]=bd[115];bd[115]=0}
+  }
+  if((p&7)===K) kings[side]=from;
+  castle=uCastle[hp]; ep=uEp[hp]; half=uHalf[hp]; hLo=uLo[hp]; hHi=uHi[hp];
+}
+function makeNull(){
+  uMove[hp]=0; uCastle[hp]=castle; uEp[hp]=ep; uHalf[hp]=half; uLo[hp]=hLo; uHi[hp]=hHi;
+  if(ep>=0){ hLo^=zeLo[ep]; hHi^=zeHi[ep]; }
+  ep=-1; side^=1; hLo^=zsLo; hHi^=zsHi; half++; hp++;
+}
+function unmakeNull(){ hp--; side^=1; ep=uEp[hp]; half=uHalf[hp]; hLo=uLo[hp]; hHi=uHi[hp]; }
+
+function legalMoves(){ const out=[]; for(const m of gen([],false)){ if(make(m)){ unmake(); out.push(m); } } return out; }
+function perft(d){
+  const ms=gen([],false); let n=0;
+  for(let i=0;i<ms.length;i++){ if(make(ms[i])){ n+=d===1?1:perft(d-1); unmake(); } }
+  return n;
+}
+
+/* ---------------- FEN ---------------- */
+const START="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const PCH=" pnbrqk";
+function setFen(fen){
+  const f=fen.trim().split(/\s+/); bd.fill(0);
+  let r=7,c=0;
+  for(const ch of f[0]){
+    if(ch==="/"){ r--; c=0; }
+    else if(ch>="1"&&ch<="8") c+=+ch;
+    else { const t=PCH.indexOf(ch.toLowerCase()); if(t<1) throw new Error("bad piece "+ch);
+      bd[r*16+c]=t|(ch===ch.toLowerCase()?8:0); if(t===K) kings[ch===ch.toLowerCase()?1:0]=r*16+c; c++; }
+  }
+  side=f[1]==="b"?1:0; castle=0;
+  const cr=f[2]||"-"; if(cr.includes("K"))castle|=1; if(cr.includes("Q"))castle|=2; if(cr.includes("k"))castle|=4; if(cr.includes("q"))castle|=8;
+  ep=(f[3]&&f[3]!=="-")?sqIdx(f[3]):-1;
+  half=+(f[4]||0); full=+(f[5]||1); hp=0; computeHash();
+}
+function getFen(){
+  let s="";
+  for(let r=7;r>=0;r--){ let e=0;
+    for(let c=0;c<8;c++){ const p=bd[r*16+c]; if(!p){e++;continue;} if(e){s+=e;e=0;} const ch=PCH[p&7]; s+=p&8?ch:ch.toUpperCase(); }
+    if(e) s+=e; if(r) s+="/"; }
+  let cr=(castle&1?"K":"")+(castle&2?"Q":"")+(castle&4?"k":"")+(castle&8?"q":""); if(!cr) cr="-";
+  return s+" "+(side?"b":"w")+" "+cr+" "+(ep>=0?sqName(ep):"-")+" "+half+" "+full;
+}
+const sqName=s=>"abcdefgh"[s&7]+((s>>4)+1);
+const sqIdx=n=>(n.charCodeAt(1)-49)*16+(n.charCodeAt(0)-97);
+function uci(m){ return sqName(mFrom(m))+sqName(mTo(m))+(mPro(m)?"nbrq"[mPro(m)-2]:""); }
+function san(m){
+  const from=mFrom(m), to=mTo(m), pr=mPro(m), fl=mFl(m), t=bd[from]&7; let s;
+  if(fl&CAS) s=(to&7)===6?"O-O":"O-O-O";
+  else if(t===P){ s=(fl&CAP)?"abcdefgh"[from&7]+"x":""; s+=sqName(to); if(pr) s+="="+"NBRQ"[pr-2]; }
+  else {
+    s="NBRQK"[t-2]; let amb=false, sf=false, sr=false;
+    for(const o of legalMoves()){ if(o===m) continue; const of=mFrom(o);
+      if(mTo(o)===to&&(bd[of]&7)===t&&of!==from){ amb=true; if((of&7)===(from&7)) sf=true; if((of>>4)===(from>>4)) sr=true; } }
+    if(amb) s+=!sf?"abcdefgh"[from&7]:!sr?String((from>>4)+1):sqName(from);
+    if(fl&CAP) s+="x"; s+=sqName(to);
+  }
+  make(m); if(inCheck()) s+=legalMoves().length?"+":"#"; unmake();
+  return s;
+}
+
+/* ---------------- evaluation ---------------- */
+const PST_SRC={
+ 1:[0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+ 2:[-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+ 3:[-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+ 4:[0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+ 5:[-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+ 6:[-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+ 7:[-50,-40,-30,-20,-20,-30,-40,-50, -30,-20,-10,0,0,-10,-20,-30, -30,-10,20,30,30,20,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,20,30,30,20,-10,-30, -30,-30,0,0,0,0,-30,-30, -50,-30,-30,-30,-30,-30,-30,-50]
+};
+// PST[t][colour][0x88 sq], tables printed rank 8 first
+const PST=[]; for(let t=1;t<=7;t++){ PST[t]=[new Int16Array(128),new Int16Array(128)];
+  for(let r=0;r<8;r++) for(let c=0;c<8;c++){ PST[t][0][r*16+c]=PST_SRC[t][(7-r)*8+c]; PST[t][1][r*16+c]=PST_SRC[t][r*8+c]; } }
+const PASS=[0,8,14,24,40,66,105,0], PHASE=[0,0,1,1,2,4,0];
+const wMin=new Int8Array(10), bMax=new Int8Array(10), wCnt=new Int8Array(8), bCnt=new Int8Array(8);
+function evaluate(){
+  let s=0, ph=0, wb=0, bb=0, wmat=0, bmat=0;
+  wMin.fill(8); bMax.fill(-1); wCnt.fill(0); bCnt.fill(0);
+  for(let sq=0;sq<128;sq++){ if(sq&0x88){sq+=7;continue;} const p=bd[sq]; if((p&7)!==P) continue;
+    const f=sq&7, r=sq>>4; if(p&8){ bCnt[f]++; if(r>bMax[f+1]) bMax[f+1]=r; } else { wCnt[f]++; if(r<wMin[f+1]) wMin[f+1]=r; } }
+  for(let sq=0;sq<128;sq++){ if(sq&0x88){sq+=7;continue;} const p=bd[sq]; if(!p) continue;
+    const t=p&7, c=p>>3; ph+=PHASE[t];
+    if(t===K) continue;
+    let v=VAL[t]+PST[t][c][sq];
+    if(t===P){ const f=sq&7, r=sq>>4;
+      if(c===0){ if(bMax[f]<=r&&bMax[f+1]<=r&&bMax[f+2]<=r) v+=PASS[r]; }
+      else { if(wMin[f]>=r&&wMin[f+1]>=r&&wMin[f+2]>=r) v+=PASS[7-r]; } }
+    else if(t===B){ if(c) bb++; else wb++; }
+    if(c){ s-=v; bmat+=VAL[t]; } else { s+=v; wmat+=VAL[t]; }
+  }
+  for(let f=0;f<8;f++){ if(wCnt[f]>1) s-=12*(wCnt[f]-1); if(bCnt[f]>1) s+=12*(bCnt[f]-1); }
+  if(wb>1) s+=30; if(bb>1) s-=30;
+  if(ph>24) ph=24;
+  const wk=kings[0], bk=kings[1];
+  s+=((PST[6][0][wk]-PST[6][1][bk])*ph+(PST[7][0][wk]-PST[7][1][bk])*(24-ph))/24|0;
+  const diff=wmat-bmat;
+  if(ph<=8&&Math.abs(diff)>=300){
+    const lk=diff>0?bk:wk, cd=Math.max(3-(lk>>4),(lk>>4)-4)+Math.max(3-(lk&7),(lk&7)-4);
+    const kd=Math.abs((wk>>4)-(bk>>4))+Math.abs((wk&7)-(bk&7));
+    const mop=cd*12+(14-kd)*5; s+=diff>0?mop:-mop;
+  }
+  return (side?-s:s)+10;
+}
+
+/* ---------------- search ---------------- */
+const INF=32000, MATE=31000, MAXP=64;
+const TTB=20, TTN=1<<TTB, TTM=TTN-1;
+const ttLock=new Int32Array(TTN), ttMv=new Int32Array(TTN), ttSc=new Int16Array(TTN), ttDp=new Int8Array(TTN), ttFl=new Int8Array(TTN);
+const killers=new Int32Array(MAXP*2), hist=new Int32Array(16*128);
+const pvT=new Int32Array(MAXP*MAXP), pvL=new Int32Array(MAXP);
+let nodes=0, stopAt=0, stopped=false, iterDepth=0, clock=()=>Date.now();
+if(typeof performance!=="undefined") clock=()=>performance.now();
+
+function isRep(){ const lim=Math.max(0,hp-half); for(let i=hp-2;i>=lim;i-=2) if(uLo[i]===hLo&&uHi[i]===hHi) return true; return false; }
+function insufficient(){
+  let minors=0;
+  for(let sq=0;sq<128;sq++){ if(sq&0x88){sq+=7;continue;} const t=bd[sq]&7; if(!t||t===K) continue; if(t===N||t===B){ if(++minors>1) return false; } else return false; }
+  return true;
+}
+function hasPieces(){ const cb=side?8:0; for(let sq=0;sq<128;sq++){ if(sq&0x88){sq+=7;continue;} const p=bd[sq]; if(p&&(p&8)===cb){ const t=p&7; if(t!==P&&t!==K) return true; } } return false; }
+
+function scoreMoves(ms,sc,ttm,ply){
+  for(let i=0;i<ms.length;i++){ const m=ms[i];
+    if(m===ttm) sc[i]=2e6;
+    else if(mFl(m)&CAP){ const vt=(mFl(m)&EPF)?P:(bd[mTo(m)]&7); sc[i]=1e6+VAL[vt]*10-VAL[bd[mFrom(m)]&7]/10; }
+    else if(mPro(m)===Q) sc[i]=9.5e5;
+    else if(m===killers[ply*2]) sc[i]=9e5;
+    else if(m===killers[ply*2+1]) sc[i]=8e5;
+    else sc[i]=hist[bd[mFrom(m)]*128+mTo(m)];
+  }
+}
+function pick(ms,sc,i){ let b=i; for(let j=i+1;j<ms.length;j++) if(sc[j]>sc[b]) b=j; if(b!==i){ let t=ms[i];ms[i]=ms[b];ms[b]=t; t=sc[i];sc[i]=sc[b];sc[b]=t; } return ms[i]; }
+
+function tick(){ if((++nodes&2047)===0&&iterDepth>1&&clock()>stopAt) stopped=true; }
+
+function qs(alpha,beta,ply){
+  tick(); if(stopped) return 0;
+  const stand=evaluate();
+  if(ply>=MAXP-1) return stand;
+  if(stand>=beta) return stand;
+  if(stand>alpha) alpha=stand;
+  const ms=gen([],true), sc=new Float64Array(ms.length); scoreMoves(ms,sc,0,ply);
+  for(let i=0;i<ms.length;i++){
+    const m=pick(ms,sc,i);
+    if(!mPro(m)){ const vt=(mFl(m)&EPF)?P:(bd[mTo(m)]&7); if(stand+VAL[vt]+200<alpha) continue; }
+    if(!make(m)) continue;
+    const s=-qs(-beta,-alpha,ply+1); unmake();
+    if(stopped) return 0;
+    if(s>alpha){ alpha=s; if(s>=beta) return s; }
+  }
+  return alpha;
+}
+
+function search(depth,alpha,beta,ply,nullOk){
+  pvL[ply]=ply;
+  tick(); if(stopped) return 0;
+  const chk=inCheck();
+  if(ply>0){
+    if(half>=100||isRep()||insufficient()) return 0;
+    if(ply>=MAXP-2) return evaluate();
+    const ma=Math.max(alpha,-MATE+ply), mb=Math.min(beta,MATE-ply-1); if(ma>=mb) return ma;
+  }
+  if(chk) depth++;
+  if(depth<=0) return qs(alpha,beta,ply);
+  const idx=hLo&TTM; let ttm=0;
+  if(ttLock[idx]===hHi){
+    ttm=ttMv[idx];
+    if(ply>0&&ttDp[idx]>=depth){ let s=ttSc[idx]; if(s>MATE-200) s-=ply; else if(s<-MATE+200) s+=ply;
+      const f=ttFl[idx]; if(f===0||(f===1&&s>=beta)||(f===2&&s<=alpha)) return s; }
+  }
+  const pvNode=beta-alpha>1;
+  if(nullOk&&!chk&&!pvNode&&depth>=3&&hasPieces()&&evaluate()>=beta){
+    makeNull(); const s=-search(depth-3,-beta,-beta+1,ply+1,false); unmakeNull();
+    if(stopped) return 0;
+    if(s>=beta) return beta;
+  }
+  const ms=gen([],false), sc=new Float64Array(ms.length); scoreMoves(ms,sc,ttm,ply);
+  let best=-INF, bestM=0, legal=0; const a0=alpha;
+  for(let i=0;i<ms.length;i++){
+    const m=pick(ms,sc,i);
+    if(!make(m)) continue;
+    legal++;
+    const quiet=!(mFl(m)&CAP)&&!mPro(m);
+    let s;
+    if(legal===1) s=-search(depth-1,-beta,-alpha,ply+1,true);
+    else {
+      let r=0;
+      if(depth>=3&&legal>3&&quiet&&!chk&&m!==killers[ply*2]&&m!==killers[ply*2+1]&&!inCheck()) r=legal>8?2:1;
+      s=-search(depth-1-r,-alpha-1,-alpha,ply+1,true);
+      if(s>alpha&&r) s=-search(depth-1,-alpha-1,-alpha,ply+1,true);
+      if(s>alpha&&s<beta) s=-search(depth-1,-beta,-alpha,ply+1,true);
+    }
+    unmake();
+    if(stopped) return 0;
+    if(s>best){
+      best=s; bestM=m;
+      if(s>alpha){
+        alpha=s;
+        pvT[ply*MAXP+ply]=m; for(let j=ply+1;j<pvL[ply+1];j++) pvT[ply*MAXP+j]=pvT[(ply+1)*MAXP+j]; pvL[ply]=pvL[ply+1];
+        if(s>=beta){
+          if(quiet){ if(killers[ply*2]!==m){ killers[ply*2+1]=killers[ply*2]; killers[ply*2]=m; } hist[bd[mFrom(m)]*128+mTo(m)]+=depth*depth; }
+          break;
+        }
+      }
+    }
+  }
+  if(!legal) return chk?-MATE+ply:0;
+  let st=best; if(st>MATE-200) st+=ply; else if(st<-MATE+200) st-=ply;
+  ttLock[idx]=hHi; ttMv[idx]=bestM; ttSc[idx]=st; ttDp[idx]=depth; ttFl[idx]=best>=beta?1:best>a0?0:2;
+  return best;
+}
+
+function think(ms,maxDepth,report){
+  nodes=0; stopped=false; stopAt=clock()+ms; killers.fill(0); for(let i=0;i<hist.length;i++) hist[i]>>=2;
+  const t0=clock(); let bestMove=0, bestScore=0, pv=[];
+  const root=legalMoves(); if(root.length===1) maxDepth=Math.min(maxDepth,4);
+  for(let d=1;d<=maxDepth;d++){
+    iterDepth=d;
+    const s=search(d,-INF,INF,0,false);
+    if(stopped&&d>1) break;
+    bestScore=s; pv=[]; for(let j=0;j<pvL[0];j++) pv.push(pvT[j]);
+    if(pv.length) bestMove=pv[0];
+    const el=Math.max(1,clock()-t0);
+    if(report) report({depth:d,score:s,nodes,nps:nodes/el*1000,ms:el,pv});
+    if(Math.abs(s)>MATE-200&&d>=MATE-Math.abs(s)+2) break;
+    if(clock()-t0>ms*0.55) break;
+  }
+  if(!bestMove&&root.length) bestMove=root[0];
+  return {move:bestMove,score:bestScore,pv,nodes};
+}
+</script>
+
+<script type="text/plain" id="worker">
+let cur="";
+onmessage=e=>{
+  const d=e.data;
+  if(d.cmd==="go"){
+    setFen(d.fen); for(const u of d.moves){ const m=legalMoves().find(x=>uci(x)===u); make(m); }
+    const r=think(d.ms,40,info=>postMessage({type:"info",id:d.id,...info,pv:info.pv.map(uci)}));
+    postMessage({type:"best",id:d.id,move:uci(r.move),score:r.score});
+  } else if(d.cmd==="perft"){
+    setFen(d.fen); const t=clock(); const n=perft(d.depth);
+    postMessage({type:"perft",i:d.i,n,ms:clock()-t});
+  }
+};
+</script>
+
+<script>
+/* ---------------- UI ---------------- */
+const $=s=>document.querySelector(s);
+const GL={1:"♟",2:"♞",3:"♝",4:"♜",5:"♛",6:"♚"};
+const engSrc=$("#engine").textContent, wkSrc=$("#worker").textContent;
+const worker=new Worker(URL.createObjectURL(new Blob([engSrc+"\n"+wkSrc],{type:"text/javascript"})));
+
+let startFen=START, moveList=[], sanList=[], mode="w", flip=false, sel=-1, thinkMs=1000, searchId=0, busy=false, lastInfo=null;
+
+function rebuild(){ setFen(startFen); for(const u of moveList){ make(legalMoves().find(x=>uci(x)===u)); } }
+function gameState(){
+  const lm=legalMoves();
+  if(!lm.length) return inCheck()?"mate":"stalemate";
+  if(half>=100) return "fifty"; if(insufficient()) return "material";
+  let reps=0; for(let i=hp-2;i>=Math.max(0,hp-half);i-=2) if(uLo[i]===hLo&&uHi[i]===hHi) reps++;
+  if(reps>=2) return "repetition";
+  return "";
+}
+const humanSide=()=>mode==="w"?0:mode==="b"?1:-1;
+
+function render(){
+  const b=$("#board"); b.innerHTML="";
+  const lm=legalMoves(), last=moveList.length?moveList[moveList.length-1]:"";
+  const lf=last?sqIdx(last.slice(0,2)):-1, lt=last?sqIdx(last.slice(2,4)):-1;
+  const chk=inCheck()?kings[side]:-1;
+  const targets=sel>=0?lm.filter(m=>mFrom(m)===sel):[];
+  for(let i=0;i<64;i++){
+    const r=flip?(i>>3):7-(i>>3), c=flip?7-(i&7):(i&7), sq=r*16+c;
+    const d=document.createElement("div"); d.className="sq "+((r+c)&1?"l":"d"); d.dataset.sq=sq;
+    if(sq===lf||sq===lt) d.classList.add("last");
+    if(sq===sel) d.classList.add("sel");
+    if(sq===chk) d.classList.add("chk");
+    if((i&7)===0){ const e=document.createElement("span"); e.className="co r"; e.textContent=r+1; d.appendChild(e); }
+    if((i>>3)===7){ const e=document.createElement("span"); e.className="co f"; e.textContent="abcdefgh"[c]; d.appendChild(e); }
+    const p=bd[sq];
+    if(p){ const e=document.createElement("span"); e.className="pc "+(p&8?"b":"w"); e.textContent=GL[p&7]+"︎"; d.appendChild(e); }
+    const t=targets.find(m=>mTo(m)===sq);
+    if(t){ const e=document.createElement("span"); e.className=bd[sq]?"ring":"dot"; d.appendChild(e); }
+    b.appendChild(d);
+  }
+  // moves
+  const mv=$("#moves"); mv.innerHTML="";
+  const startBlack=startFen.split(" ")[1]==="b"; let n=+startFen.split(" ")[5]||1;
+  const cells=[]; if(startBlack) cells.push("…");
+  for(const s of sanList) cells.push(s);
+  for(let i=0;i<cells.length;i+=2){
+    const a=document.createElement("span"); a.className="n"; a.textContent=(n+i/2)+"."; mv.appendChild(a);
+    for(let j=0;j<2;j++){ const e=document.createElement("span"); e.textContent=cells[i+j]||""; if(i+j===cells.length-1) e.className="cur"; mv.appendChild(e); }
+  }
+  mv.scrollTop=mv.scrollHeight;
+  $("#ply").textContent=sanList.length+" ply";
+  $("#fen").value=getFen();
+  const st=gameState(), who=side?"Black":"White";
+  const sub=mode==="watch"?"Engine plays both sides":"You play "+(mode==="w"?"white":"black");
+  const head={mate:(side?"White":"Black")+" wins by checkmate",stalemate:"Draw by stalemate",fifty:"Draw by the fifty move rule",material:"Draw, insufficient material",repetition:"Draw by repetition"}[st]||(who+" to move"+(inCheck()?", in check":""));
+  $("#status").innerHTML=head+"<small>"+sub+"</small>";
+}
+
+function fmtScore(s,white){ if(Math.abs(s)>MATE-200){ const n=Math.ceil((MATE-Math.abs(s))/2); return (s>0===white?"":"-")+"M"+n; } return ((white?s:-s)/100).toFixed(2); }
+function setEval(sWhite){
+  const clamp=Math.abs(sWhite)>MATE-200?(sWhite>0?1:0):1/(1+Math.exp(-sWhite/320));
+  $("#evalfill").style.height=(clamp*100).toFixed(1)+"%";
+  const t=$("#evaltxt"); const txt=Math.abs(sWhite)>MATE-200?"M"+Math.ceil((MATE-Math.abs(sWhite))/2):(Math.abs(sWhite)/100).toFixed(1);
+  t.textContent=txt;
+  if(sWhite>=0){ t.style.bottom="4px"; t.style.top=""; t.style.color="#2a241d"; } else { t.style.top="4px"; t.style.bottom=""; t.style.color="#f7f2e8"; }
+  const eb=$("#evalbar"); eb.style.height=$("#board").offsetHeight+"px"; if(flip) eb.style.transform="rotate(180deg)"; else eb.style.transform="";
+}
+
+function sanLine(pvUci){
+  const out=[]; let n=0;
+  for(const u of pvUci){ const m=legalMoves().find(x=>uci(x)===u); if(!m) break; out.push(san(m)); make(m); n++; }
+  for(let i=0;i<n;i++) unmake();
+  return out;
+}
+
+worker.onmessage=e=>{
+  const d=e.data;
+  if(d.type==="info"&&d.id===searchId){
+    lastInfo=d;
+    const white=side===0;
+    $("#s-d").textContent=d.depth; $("#s-e").textContent=fmtScore(d.score,white);
+    $("#s-n").textContent=d.nodes>=1e6?(d.nodes/1e6).toFixed(2)+"M":d.nodes>=1e3?(d.nodes/1e3).toFixed(1)+"k":d.nodes;
+    $("#s-k").textContent=Math.round(d.nps/1000);
+    const line=sanLine(d.pv);
+    $("#pv").innerHTML=line.length?"<b>"+line[0]+"</b> "+line.slice(1).join(" "):"";
+    setEval(white?d.score:-d.score);
+  } else if(d.type==="best"&&d.id===searchId){
+    busy=false; $("#thinking").textContent="";
+    const m=legalMoves().find(x=>uci(x)===d.move);
+    if(m) play(m);
+  } else if(d.type==="perft") perftDone(d);
+};
+
+function play(m){
+  sanList.push(san(m)); moveList.push(uci(m)); make(m); sel=-1; render(); setTimeout(maybeEngine,mode==="watch"?350:60);
+}
+function maybeEngine(){
+  if(busy||gameState()) return;
+  if(humanSide()===side) return;
+  busy=true; searchId++; $("#thinking").textContent="thinking…";
+  worker.postMessage({cmd:"go",id:searchId,fen:startFen,moves:moveList,ms:thinkMs});
+}
+function cancel(){ searchId++; busy=false; $("#thinking").textContent=""; }
+
+/* input: click or drag */
+let drag=null;
+$("#board").addEventListener("pointerdown",e=>{
+  const cell=e.target.closest(".sq"); if(!cell) return;
+  const sq=+cell.dataset.sq;
+  if(busy||humanSide()!==side||gameState()) return;
+  if(sel>=0){ if(tryMove(sel,sq)) return; }
+  const p=bd[sq];
+  if(p&&((p&8)?1:0)===side){
+    sel=sq; render();
+    const g=document.createElement("div"); g.className="drag pc "+(p&8?"b":"w"); g.textContent=GL[p&7]+"︎";
+    g.style.fontSize=getComputedStyle($("#board")).getPropertyValue("--s").trim()?(($("#board").offsetWidth/8)*0.8)+"px":"56px";
+    g.style.left=e.clientX+"px"; g.style.top=e.clientY+"px";
+    drag={g,from:sq,moved:false}; document.body.appendChild(g);
+    const src=$(`.sq[data-sq="${sq}"] .pc`); if(src) src.style.opacity=".25";
+  } else { sel=-1; render(); }
+});
+window.addEventListener("pointermove",e=>{ if(!drag) return; drag.moved=true; drag.g.style.left=e.clientX+"px"; drag.g.style.top=e.clientY+"px"; });
+window.addEventListener("pointerup",e=>{
+  if(!drag) return; const d=drag; drag=null; d.g.remove();
+  const el=document.elementFromPoint(e.clientX,e.clientY), cell=el&&el.closest(".sq");
+  if(cell&&+cell.dataset.sq!==d.from&&tryMove(d.from,+cell.dataset.sq)) return;
+  render();
+});
+function tryMove(from,to){
+  const c=legalMoves().filter(m=>mFrom(m)===from&&mTo(m)===to);
+  if(!c.length) return false;
+  if(c.length>1){ askPromo(c); return true; }
+  play(c[0]); return true;
+}
+function askPromo(c){
+  const box=$("#promo"), inner=box.firstElementChild; inner.innerHTML="";
+  for(const t of [Q,R,B,N]){ const m=c.find(x=>mPro(x)===t); const b=document.createElement("button");
+    b.textContent=GL[t]+"︎"; b.style.color=side?"#231c15":"#fbf8f1"; b.style.webkitTextStroke=side?"0":"1.4px #2a2118";
+    b.onclick=()=>{ box.classList.remove("show"); play(m); }; inner.appendChild(b); }
+  box.classList.add("show");
+}
+
+/* controls */
+document.querySelectorAll("#mode button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#mode button").forEach(x=>x.classList.toggle("on",x===b));
+  mode=b.dataset.m; cancel(); flip=mode==="b"; render(); setEval(0); maybeEngine();
+});
+document.querySelectorAll("#tm button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tm button").forEach(x=>x.classList.toggle("on",x===b)); thinkMs=+b.dataset.t; });
+$("#flip").onclick=()=>{ flip=!flip; render(); if(lastInfo) setEval(side===0?lastInfo.score:-lastInfo.score); else setEval(0); };
+$("#undo").onclick=()=>{
+  cancel();
+  let n=mode==="watch"?1:(humanSide()===side?2:1);
+  while(n--&&moveList.length){ moveList.pop(); sanList.pop(); }
+  rebuild(); sel=-1; render(); if(mode==="watch") maybeEngine();
+};
+$("#reset").onclick=()=>{ cancel(); startFen=START; moveList=[]; sanList=[]; rebuild(); sel=-1; render(); setEval(0); maybeEngine(); };
+$("#loadfen").onclick=()=>{
+  const f=$("#fen").value; try{ setFen(f); startFen=getFen(); }catch(err){ rebuild(); alert("That FEN did not parse: "+err.message); return; }
+  cancel(); moveList=[]; sanList=[]; rebuild(); sel=-1; render(); setEval(0); maybeEngine();
+};
+
+/* perft suite: the standard positions from the Chess Programming Wiki */
+const SUITE=[
+  ["Start","rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",4,197281],
+  ["Start","rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",5,4865609],
+  ["Kiwipete","r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",3,97862],
+  ["Kiwipete","r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",4,4085603],
+  ["Position 3","8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",5,674624],
+  ["Position 4","r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",4,422333],
+  ["Position 5","rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",4,2103487],
+];
+const pw=new Worker(URL.createObjectURL(new Blob([engSrc+"\n"+wkSrc],{type:"text/javascript"})));
+pw.onmessage=e=>perftDone(e.data);
+let perftT0=0, perftTotal=0;
+function drawSuite(){ const tb=$("#perft tbody"); tb.innerHTML="";
+  SUITE.forEach((s,i)=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${s[0]}</td><td>${s[2]}</td><td class="r">${s[3].toLocaleString()}</td><td class="r" id="pf${i}">·</td>`; tb.appendChild(tr); }); }
+function perftDone(d){
+  const s=SUITE[d.i], c=$("#pf"+d.i); c.textContent=d.n.toLocaleString(); c.className="r "+(d.n===s[3]?"ok":"bad"); perftTotal+=d.n;
+  if(d.i+1<SUITE.length) pw.postMessage({cmd:"perft",i:d.i+1,fen:SUITE[d.i+1][1],depth:SUITE[d.i+1][2]});
+  else { const el=(performance.now()-perftT0)/1000; $("#perft-t").textContent=(perftTotal/1e6).toFixed(1)+"M nodes, "+el.toFixed(1)+"s"; $("#runperft").disabled=false; }
+}
+$("#runperft").onclick=()=>{ drawSuite(); perftTotal=0; perftT0=performance.now(); $("#perft-t").textContent="counting…"; $("#runperft").disabled=true;
+  pw.postMessage({cmd:"perft",i:0,fen:SUITE[0][1],depth:SUITE[0][2]}); };
+
+drawSuite(); rebuild(); render(); setEval(0);
+window.addEventListener("resize",()=>{ $("#evalbar").style.height=$("#board").offsetHeight+"px"; });
+document.fonts&&document.fonts.ready.then(render);
+</script>
+</body>
+</html>
